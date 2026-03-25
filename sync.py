@@ -12,8 +12,8 @@ Setup:
      - Create a project, enable YouTube Data API v3
      - Create OAuth 2.0 Client ID (Desktop app)
      - Download the JSON and save as client_secret.json
-  4. pip install -r requirements.txt
-  5. python sync.py
+  4. uv sync
+  5. uv run sync.py
 """
 
 import argparse
@@ -24,12 +24,13 @@ import time
 from pathlib import Path
 
 import spotipy
-from spotipy.oauth2 import SpotifyOAuth
 from dotenv import load_dotenv
-from google_auth_oauthlib.flow import InstalledAppFlow
 from google.auth.transport.requests import Request
 from google.oauth2.credentials import Credentials
+from google_auth_oauthlib.flow import InstalledAppFlow
 from googleapiclient.discovery import build
+from googleapiclient.errors import HttpError
+from spotipy.oauth2 import SpotifyOAuth
 
 load_dotenv()
 
@@ -38,15 +39,26 @@ STATE_FILE = Path(__file__).parent / "sync_state.json"
 CLIENT_SECRET_FILE = Path(__file__).parent / "client_secret.json"
 YOUTUBE_TOKEN_FILE = Path(__file__).parent / "youtube_token.json"
 
+# Seconds to wait between YouTube search calls to stay within quota
+SEARCH_DELAY_SECONDS = float(os.getenv("SEARCH_DELAY_SECONDS", "1.5"))
+
+# Retry settings for quota / transient errors
+RETRY_ATTEMPTS = 3
+RETRY_BACKOFF_BASE = 5  # seconds; doubles on each retry
+
 
 def get_spotify_client():
     """Authenticate with Spotify and return a client."""
-    sp = spotipy.Spotify(auth_manager=SpotifyOAuth(
-        client_id=os.getenv("SPOTIPY_CLIENT_ID"),
-        client_secret=os.getenv("SPOTIPY_CLIENT_SECRET"),
-        redirect_uri=os.getenv("SPOTIPY_REDIRECT_URI", "http://127.0.0.1:8888/callback"),
-        scope="playlist-read-private playlist-read-collaborative user-library-read",
-    ))
+    sp = spotipy.Spotify(
+        auth_manager=SpotifyOAuth(
+            client_id=os.getenv("SPOTIPY_CLIENT_ID"),
+            client_secret=os.getenv("SPOTIPY_CLIENT_SECRET"),
+            redirect_uri=os.getenv(
+                "SPOTIPY_REDIRECT_URI", "http://127.0.0.1:8888/callback"
+            ),
+            scope="playlist-read-private playlist-read-collaborative user-library-read",
+        )
+    )
     return sp
 
 
@@ -63,10 +75,14 @@ def get_youtube_client():
         else:
             if not CLIENT_SECRET_FILE.exists():
                 print(f"Error: {CLIENT_SECRET_FILE} not found.")
-                print("Download your OAuth 2.0 Client ID JSON from Google Cloud Console")
+                print(
+                    "Download your OAuth 2.0 Client ID JSON from Google Cloud Console"
+                )
                 print("and save it as client_secret.json in this directory.")
                 sys.exit(1)
-            flow = InstalledAppFlow.from_client_secrets_file(str(CLIENT_SECRET_FILE), SCOPES)
+            flow = InstalledAppFlow.from_client_secrets_file(
+                str(CLIENT_SECRET_FILE), SCOPES
+            )
             creds = flow.run_local_server(port=8080)
 
         with open(YOUTUBE_TOKEN_FILE, "w") as f:
@@ -112,17 +128,19 @@ def get_liked_songs(sp):
             track = item.get("track")
             if track and track.get("name"):
                 artists = ", ".join(a["name"] for a in track["artists"])
-                tracks.append({
-                    "uri": track["uri"],
-                    "name": track["name"],
-                    "artist": artists,
-                })
+                tracks.append(
+                    {
+                        "uri": track["uri"],
+                        "name": track["name"],
+                        "artist": artists,
+                    }
+                )
         results = sp.next(results) if results.get("next") else None
     return tracks
 
 
 def get_spotify_tracks(sp, playlist_id):
-    """Fetch all tracks from a Spotify playlist. Returns list of (uri, name, artist)."""
+    """Fetch all tracks from a Spotify playlist. Returns list of track dicts."""
     tracks = []
     results = sp.playlist_tracks(playlist_id)
     while results:
@@ -130,38 +148,89 @@ def get_spotify_tracks(sp, playlist_id):
             track = item.get("track")
             if track and track.get("name"):
                 artists = ", ".join(a["name"] for a in track["artists"])
-                tracks.append({
-                    "uri": track["uri"],
-                    "name": track["name"],
-                    "artist": artists,
-                })
+                tracks.append(
+                    {
+                        "uri": track["uri"],
+                        "name": track["name"],
+                        "artist": artists,
+                    }
+                )
         results = sp.next(results) if results.get("next") else None
     return tracks
 
 
 def search_youtube(youtube, query):
-    """Search YouTube for a song and return the top video ID, or None."""
-    response = youtube.search().list(
-        part="snippet",
-        q=query,
-        type="video",
-        maxResults=1,
-        videoCategoryId="10",  # Music category
-    ).execute()
+    """Search YouTube for a song and return (video_id, title), or (None, None).
 
-    items = response.get("items", [])
-    if not items:
-        # Retry without music category filter
-        response = youtube.search().list(
-            part="snippet",
-            q=query,
-            type="video",
-            maxResults=1,
-        ).execute()
-        items = response.get("items", [])
+    Retries up to RETRY_ATTEMPTS times with exponential backoff on quota or
+    transient server errors.  A per-call delay is inserted before each request
+    to pace usage within the daily quota budget.
+    """
+    for attempt in range(1, RETRY_ATTEMPTS + 1):
+        try:
+            # Pace calls to avoid burning through the daily quota too quickly
+            time.sleep(SEARCH_DELAY_SECONDS)
 
-    if items:
-        return items[0]["id"]["videoId"], items[0]["snippet"]["title"]
+            response = (
+                youtube.search()
+                .list(
+                    part="snippet",
+                    q=query,
+                    type="video",
+                    maxResults=1,
+                    videoCategoryId="10",  # Music category
+                )
+                .execute()
+            )
+
+            items = response.get("items", [])
+            if not items:
+                # Retry without the music-category filter
+                time.sleep(SEARCH_DELAY_SECONDS)
+                response = (
+                    youtube.search()
+                    .list(
+                        part="snippet",
+                        q=query,
+                        type="video",
+                        maxResults=1,
+                    )
+                    .execute()
+                )
+                items = response.get("items", [])
+
+            if items:
+                return items[0]["id"]["videoId"], items[0]["snippet"]["title"]
+            return None, None
+
+        except HttpError as e:
+            status = e.resp.status
+            is_quota = status == 403 and "quotaExceeded" in str(e)
+            is_transient = status in (500, 503)
+
+            if is_quota:
+                # Quota is a hard daily limit — no point retrying immediately.
+                # Warn loudly and propagate so the outer loop can stop gracefully.
+                print(
+                    f"\n  ⚠  YouTube quota exceeded. "
+                    f"The daily limit resets at midnight Pacific Time.\n"
+                    f"     Tip: increase SEARCH_DELAY_SECONDS in .env to make\n"
+                    f"     your quota last longer next time."
+                )
+                raise
+
+            if is_transient and attempt < RETRY_ATTEMPTS:
+                wait = RETRY_BACKOFF_BASE * (2 ** (attempt - 1))
+                print(
+                    f"  ! HTTP {status} from YouTube (attempt {attempt}/{RETRY_ATTEMPTS}). "
+                    f"Retrying in {wait}s..."
+                )
+                time.sleep(wait)
+                continue
+
+            # Unrecoverable or exhausted retries
+            raise
+
     return None, None
 
 
@@ -181,8 +250,14 @@ def add_to_youtube_playlist(youtube, playlist_id, video_id):
     ).execute()
 
 
-def sync_once(sp, youtube, spotify_playlist_id, youtube_playlist_id, is_liked_songs=False):
-    """Run one sync cycle. Returns the number of new songs added."""
+def sync_once(
+    sp, youtube, spotify_playlist_id, youtube_playlist_id, is_liked_songs=False
+):
+    """Run one sync cycle. Returns the number of new songs added.
+
+    Returns -1 when the YouTube quota has been exceeded so the caller can
+    bail out of the polling loop instead of hammering the API.
+    """
     state = load_state()
     synced = set(state["synced_tracks"])
 
@@ -190,6 +265,7 @@ def sync_once(sp, youtube, spotify_playlist_id, youtube_playlist_id, is_liked_so
         spotify_tracks = get_liked_songs(sp)
     else:
         spotify_tracks = get_spotify_tracks(sp, spotify_playlist_id)
+
     new_count = 0
 
     for track in spotify_tracks:
@@ -198,16 +274,30 @@ def sync_once(sp, youtube, spotify_playlist_id, youtube_playlist_id, is_liked_so
 
         query = f"{track['name']} {track['artist']}"
         print(f"  Searching YouTube for: {query}")
-        video_id, yt_title = search_youtube(youtube, query)
+
+        try:
+            video_id, yt_title = search_youtube(youtube, query)
+        except HttpError as e:
+            if "quotaExceeded" in str(e):
+                # Save whatever progress we made before hitting the limit
+                state["synced_tracks"] = list(synced)
+                save_state(state)
+                return -1
+            print(f"  ! YouTube API error: {e}")
+            synced.add(track["uri"])
+            continue
 
         if video_id:
             try:
                 add_to_youtube_playlist(youtube, youtube_playlist_id, video_id)
                 print(f"  + Added: {yt_title}")
                 new_count += 1
-            except Exception as e:
+            except HttpError as e:
+                if "quotaExceeded" in str(e):
+                    state["synced_tracks"] = list(synced)
+                    save_state(state)
+                    return -1
                 print(f"  ! Error adding to playlist: {e}")
-                continue
         else:
             print(f"  ? Not found on YouTube: {query}")
 
@@ -222,12 +312,16 @@ def find_youtube_playlist_by_name(youtube, name):
     """Find a YouTube playlist by name. Returns playlist ID or None."""
     next_page = None
     while True:
-        response = youtube.playlists().list(
-            part="snippet",
-            mine=True,
-            maxResults=50,
-            pageToken=next_page,
-        ).execute()
+        response = (
+            youtube.playlists()
+            .list(
+                part="snippet",
+                mine=True,
+                maxResults=50,
+                pageToken=next_page,
+            )
+            .execute()
+        )
         for playlist in response.get("items", []):
             if playlist["snippet"]["title"].strip().lower() == name.strip().lower():
                 return playlist["id"]
@@ -239,31 +333,47 @@ def find_youtube_playlist_by_name(youtube, name):
 
 def create_youtube_playlist(youtube, name):
     """Create a new public YouTube playlist and return its ID."""
-    response = youtube.playlists().insert(
-        part="snippet,status",
-        body={
-            "snippet": {"title": name},
-            "status": {"privacyStatus": "public"},
-        },
-    ).execute()
+    response = (
+        youtube.playlists()
+        .insert(
+            part="snippet,status",
+            body={
+                "snippet": {"title": name},
+                "status": {"privacyStatus": "public"},
+            },
+        )
+        .execute()
+    )
     return response["id"]
 
 
 def main():
     parser = argparse.ArgumentParser(description="Sync a Spotify playlist to YouTube")
-    parser.add_argument("--spotify-playlist", help="Spotify playlist name (e.g., 'Liked Songs', '🤗')")
-    parser.add_argument("--youtube-playlist", help="YouTube playlist name (auto-created if missing)")
-    parser.add_argument("--interval", type=int, help="Sync interval in seconds (default: 300)")
+    parser.add_argument(
+        "--spotify-playlist", help="Spotify playlist name (e.g., 'Liked Songs', '🤗')"
+    )
+    parser.add_argument(
+        "--youtube-playlist", help="YouTube playlist name (auto-created if missing)"
+    )
+    parser.add_argument(
+        "--interval", type=int, help="Sync interval in seconds (default: 300)"
+    )
     args = parser.parse_args()
 
     # CLI args take priority over .env
     spotify_playlist_name = args.spotify_playlist or os.getenv("SPOTIFY_PLAYLIST_NAME")
     spotify_playlist_id = os.getenv("SPOTIFY_PLAYLIST_ID")
-    youtube_playlist_name = args.youtube_playlist or spotify_playlist_name or os.getenv("YOUTUBE_PLAYLIST_NAME")
+    youtube_playlist_name = (
+        args.youtube_playlist
+        or spotify_playlist_name
+        or os.getenv("YOUTUBE_PLAYLIST_NAME")
+    )
     youtube_playlist_id = os.getenv("YOUTUBE_PLAYLIST_ID")
     interval = args.interval or int(os.getenv("SYNC_INTERVAL_SECONDS", "300"))
 
-    is_liked_songs = spotify_playlist_name and spotify_playlist_name.strip().lower() == "liked songs"
+    is_liked_songs = (
+        spotify_playlist_name and spotify_playlist_name.strip().lower() == "liked songs"
+    )
 
     print("Authenticating with Spotify...")
     sp = get_spotify_client()
@@ -279,7 +389,9 @@ def main():
             sys.exit(1)
         print(f"  Found: {spotify_playlist_id}")
     elif not spotify_playlist_id:
-        print("Error: Set SPOTIFY_PLAYLIST_NAME or SPOTIFY_PLAYLIST_ID in your .env file.")
+        print(
+            "Error: Set SPOTIFY_PLAYLIST_NAME or SPOTIFY_PLAYLIST_ID in your .env file."
+        )
         sys.exit(1)
 
     print("Authenticating with YouTube...")
@@ -288,30 +400,59 @@ def main():
     # Resolve YouTube playlist: name takes priority over ID
     if youtube_playlist_name:
         print(f"Looking up YouTube playlist: '{youtube_playlist_name}'...")
-        youtube_playlist_id = find_youtube_playlist_by_name(youtube, youtube_playlist_name)
+        youtube_playlist_id = find_youtube_playlist_by_name(
+            youtube, youtube_playlist_name
+        )
         if not youtube_playlist_id:
-            print(f"  YouTube playlist '{youtube_playlist_name}' not found. Creating it...")
-            youtube_playlist_id = create_youtube_playlist(youtube, youtube_playlist_name)
+            print(
+                f"  YouTube playlist '{youtube_playlist_name}' not found. Creating it..."
+            )
+            youtube_playlist_id = create_youtube_playlist(
+                youtube, youtube_playlist_name
+            )
             print(f"  Created: {youtube_playlist_id}")
         else:
             print(f"  Found: {youtube_playlist_id}")
     elif not youtube_playlist_id:
-        print("Error: Set YOUTUBE_PLAYLIST_NAME or YOUTUBE_PLAYLIST_ID in your .env file.")
+        print(
+            "Error: Set YOUTUBE_PLAYLIST_NAME or YOUTUBE_PLAYLIST_ID in your .env file."
+        )
         sys.exit(1)
 
-    print(f"\nSyncing Spotify '{spotify_playlist_name or spotify_playlist_id}' -> YouTube '{youtube_playlist_name or youtube_playlist_id}'")
-    print(f"Checking every {interval} seconds. Press Ctrl+C to stop.\n")
+    print(
+        f"\nSyncing Spotify '{spotify_playlist_name or spotify_playlist_id}'"
+        f" -> YouTube '{youtube_playlist_name or youtube_playlist_id}'"
+    )
+    print(
+        f"Checking every {interval}s  |  search delay: {SEARCH_DELAY_SECONDS}s per call"
+    )
+    print("Press Ctrl+C to stop.\n")
 
     while True:
         try:
             print(f"[{time.strftime('%H:%M:%S')}] Checking for new songs...")
-            added = sync_once(sp, youtube, spotify_playlist_id, youtube_playlist_id, is_liked_songs)
-            if added:
+            added = sync_once(
+                sp, youtube, spotify_playlist_id, youtube_playlist_id, is_liked_songs
+            )
+
+            if added == -1:
+                print("\n  Stopping — YouTube quota exhausted for today.")
+                print("  The quota resets at midnight Pacific Time.")
+                print(
+                    "  Tip: set SEARCH_DELAY_SECONDS=2 (or higher) in .env to spread "
+                    "calls over the day next time."
+                )
+                break
+            elif added:
                 print(f"  Synced {added} new song(s).")
             else:
                 print("  Already in sync.")
+
+        except KeyboardInterrupt:
+            print("\nStopping sync.")
+            break
         except Exception as e:
-            print(f"  Error during sync: {e}")
+            print(f"  Unexpected error during sync: {e}")
 
         try:
             time.sleep(interval)
