@@ -1,0 +1,39 @@
+[project]
+name = "spotify-to-yt-sync"
+version = "0.1.0"
+description = "Automatically mirrors a Spotify playlist (or Liked Songs) to a YouTube playlist and keeps it in sync."
+readme = "README.md"
+requires-python = ">=3.8"
+license = { text = "MIT" }
+keywords = ["spotify", "youtube", "playlist", "sync", "music"]
+dependencies = [
+    "spotipy>=2.23.0",
+    "google-api-python-client>=2.100.0",
+    "google-auth-oauthlib>=1.1.0",
+    "google-auth-httplib2>=0.1.1",
+    "python-dotenv>=1.0.0",
+]
+
+[project.scripts]
+spotify-yt-sync = "sync:main"
+
+[project.urls]
+Repository = "https://github.com/xafold/spotify-to-yt-sync"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["."]
+exclude = [
+    ".env",
+    "client_secret.json",
+    "youtube_token.json",
+    "sync_state.json",
+    ".cache",
+    ".venv",
+]
+
+[tool.uv]
+dev-dependencies = []

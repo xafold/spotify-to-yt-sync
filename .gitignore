@@ -22,6 +22,10 @@ venv/
 env/
 ENV/
 
+# ── uv ───────────────────────────────────────────────────────────────────────
+# uv.lock and .python-version should be committed — do NOT ignore them
+# Only ignore the generated venv (already covered above)
+
 # ── Spotipy cache ────────────────────────────────────────────────────────────
 .cache
 .cache-*

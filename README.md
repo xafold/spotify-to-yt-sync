@@ -18,8 +18,22 @@ Automatically mirrors a Spotify playlist (or your **Liked Songs**) to a YouTube 
 ## 📋 Prerequisites
 
 - Python 3.8+
+- [uv](https://docs.astral.sh/uv/) — fast Python package & project manager
 - A [Spotify Developer](https://developer.spotify.com/dashboard) account
 - A [Google Cloud](https://console.cloud.google.com/) account with the YouTube Data API v3 enabled
+
+### Install uv
+
+```sh
+# macOS / Linux
+curl -LsSf https://astral.sh/uv/install.sh | sh
+
+# Windows
+powershell -ExecutionPolicy BypassScope -c "irm https://astral.sh/uv/install.ps1 | iex"
+
+# Or via pip
+pip install uv
+```
 
 ---
 
@@ -32,18 +46,18 @@ git clone https://github.com/xafold/spotify-to-yt-sync.git
 cd spotify-to-yt-sync
 ```
 
-### 2. Install dependencies
+### 2. Create the virtual environment and install dependencies
 
 ```sh
-pip install -r requirements.txt
+uv venv
+source .venv/bin/activate      # Windows: .venv\Scripts\activate
+uv pip install -r pyproject.toml
 ```
 
-Or use a virtual environment (recommended):
+Or let `uv sync` handle everything in one step (also generates `uv.lock`):
 
 ```sh
-python -m venv .venv
-source .venv/bin/activate   # Windows: .venv\Scripts\activate
-pip install -r requirements.txt
+uv sync
 ```
 
 ### 3. Configure Spotify credentials
@@ -59,7 +73,7 @@ pip install -r requirements.txt
 3. Go to **APIs & Services → Credentials** and create an **OAuth 2.0 Client ID** (application type: *Desktop app*).
 4. Download the JSON file and save it as **`client_secret.json`** in the project root.
 
-### 5. Set up your environment
+### 5. Set up your environment file
 
 ```sh
 cp .env.example .env
@@ -86,13 +100,13 @@ SYNC_INTERVAL_SECONDS=300
 ### Run with `.env` configuration
 
 ```sh
-python sync.py
+uv run sync.py
 ```
 
 ### Run with CLI flags (override `.env`)
 
 ```sh
-python sync.py --spotify-playlist "Liked Songs" --youtube-playlist "My YT Music" --interval 600
+uv run sync.py --spotify-playlist "Liked Songs" --youtube-playlist "My YT Music" --interval 600
 ```
 
 | Flag | Description |
@@ -113,7 +127,9 @@ python sync.py --spotify-playlist "Liked Songs" --youtube-playlist "My YT Music"
 ```
 spotify-to-yt-sync/
 ├── sync.py              # Main sync script
-├── requirements.txt     # Python dependencies
+├── pyproject.toml       # Project metadata and dependencies (uv)
+├── uv.lock              # Locked dependency versions (commit this)
+├── .python-version      # Pinned Python version for uv
 ├── .env.example         # Environment variable template
 ├── .env                 # Your local secrets (never commit this)
 ├── client_secret.json   # Google OAuth credentials (never commit this)
