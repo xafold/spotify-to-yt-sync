@@ -22,7 +22,7 @@ export function getSpotifyAuthUrl(redirectUri: string, creds: SpotifyCreds): str
     response_type: "code",
     redirect_uri: redirectUri,
     scope: scopes,
-    show_dialog: "false",
+    show_dialog: "true",
   });
 
   return `${SPOTIFY_ACCOUNTS_URL}/authorize?${params.toString()}`;
@@ -381,7 +381,8 @@ export async function createSpotifyPlaylist(
   );
 
   if (!response.ok) {
-    console.error("Failed to create Spotify playlist:", await response.text());
+    const body = await response.text();
+    console.error(`Failed to create Spotify playlist (${response.status}):`, body);
     return null;
   }
 

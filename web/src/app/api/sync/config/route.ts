@@ -235,7 +235,7 @@ export async function POST(request: NextRequest) {
       if (!spResult) {
         return NextResponse.json(
           {
-            error: `Failed to find or create Spotify playlist "${spotifyPlaylist}". Check your Spotify permissions. You may need to reconnect Spotify to grant write access.`,
+            error: `Failed to find or create Spotify playlist "${spotifyPlaylist}". Please go back and reconnect Spotify — click "Reconnect with a different account" on the Spotify step to re-authorize with write access.`,
           },
           { status: 500 }
         );
