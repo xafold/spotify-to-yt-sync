@@ -1,16 +1,16 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { getYouTubeAuthUrl } from "@/lib/youtube";
 import { getResolvedCredentials } from "@/lib/credentials";
 
 export const dynamic = "force-dynamic";
 
-export async function GET() {
-  const appUrl = process.env.APP_URL ?? "http://localhost:3000";
-  const redirectUri = `${appUrl}/api/auth/youtube/callback`;
+export async function GET(request: NextRequest) {
+  const origin = new URL(request.url).origin;
+  const redirectUri = `${origin}/api/auth/youtube/callback`;
 
   const creds = await getResolvedCredentials();
   if (!creds) {
-    return NextResponse.redirect(`${appUrl}/setup?error=missing_credentials`);
+    return NextResponse.redirect(`${origin}/setup?error=missing_credentials`);
   }
 
   const authUrl = getYouTubeAuthUrl(redirectUri, {

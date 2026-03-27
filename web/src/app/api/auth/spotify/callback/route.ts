@@ -6,8 +6,8 @@ import { getResolvedCredentials } from "@/lib/credentials";
 export const dynamic = "force-dynamic";
 
 export async function GET(request: NextRequest) {
-  const appUrl = process.env.APP_URL ?? "http://localhost:3000";
-  const redirectUri = `${appUrl}/api/auth/spotify/callback`;
+  const origin = new URL(request.url).origin;
+  const redirectUri = `${origin}/api/auth/spotify/callback`;
 
   const { searchParams } = new URL(request.url);
   const code = searchParams.get("code");
@@ -17,14 +17,14 @@ export async function GET(request: NextRequest) {
   if (error || !code) {
     const reason = error ?? "no_code";
     return NextResponse.redirect(
-      `${appUrl}/setup?error=spotify_denied&reason=${encodeURIComponent(reason)}`
+      `${origin}/setup?error=spotify_denied&reason=${encodeURIComponent(reason)}`
     );
   }
 
   // Resolve credentials
   const creds = await getResolvedCredentials();
   if (!creds) {
-    return NextResponse.redirect(`${appUrl}/setup?error=missing_credentials`);
+    return NextResponse.redirect(`${origin}/setup?error=missing_credentials`);
   }
 
   // Exchange the code for tokens
@@ -35,7 +35,7 @@ export async function GET(request: NextRequest) {
 
   if (!tokens?.access_token || !tokens?.refresh_token) {
     return NextResponse.redirect(
-      `${appUrl}/setup?error=spotify_token_exchange_failed`
+      `${origin}/setup?error=spotify_token_exchange_failed`
     );
   }
 
@@ -44,7 +44,7 @@ export async function GET(request: NextRequest) {
 
   if (!user) {
     return NextResponse.redirect(
-      `${appUrl}/setup?error=spotify_profile_failed`
+      `${origin}/setup?error=spotify_profile_failed`
     );
   }
 
@@ -58,5 +58,5 @@ export async function GET(request: NextRequest) {
   await session.save();
 
   // Redirect back to the setup wizard with success flag
-  return NextResponse.redirect(`${appUrl}/setup?spotify=connected`);
+  return NextResponse.redirect(`${origin}/setup?spotify=connected`);
 }
