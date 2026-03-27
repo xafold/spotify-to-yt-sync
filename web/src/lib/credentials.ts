@@ -1,12 +1,16 @@
 /**
  * Credential resolution — server-side only.
  *
- * Tries environment variables first (for existing Vercel deployments that
- * already have env vars set), then falls back to credentials saved in KV via
- * the setup UI. Never import this file from "use client" components.
+ * Resolution order:
+ * 1. Environment variables (for deployments that set them directly)
+ * 2. Session cookie (saved when the user completes Step 0 — survives serverless cold starts)
+ * 3. Vercel KV (persistent across devices, requires KV to be configured)
+ *
+ * Never import this file from "use client" components.
  */
 
 import { getAppCredentials } from "@/lib/kv";
+import { getSession } from "@/lib/session";
 
 export interface ResolvedCredentials {
   spotifyClientId: string;
@@ -16,29 +20,47 @@ export interface ResolvedCredentials {
 }
 
 /**
- * Returns resolved credentials from env vars or KV storage.
- * Returns null if credentials are not configured in either place.
+ * Returns resolved credentials from env vars, session, or KV storage.
+ * Returns null if credentials are not configured in any of these places.
  */
 export async function getResolvedCredentials(): Promise<ResolvedCredentials | null> {
-  const spotifyClientId =
-    process.env.SPOTIFY_CLIENT_ID ||
-    null;
-  const spotifyClientSecret =
-    process.env.SPOTIFY_CLIENT_SECRET ||
-    null;
-  const googleClientId =
-    process.env.GOOGLE_CLIENT_ID ||
-    null;
-  const googleClientSecret =
-    process.env.GOOGLE_CLIENT_SECRET ||
-    null;
-
-  // If all four env vars are present, use them (zero KV reads).
-  if (spotifyClientId && spotifyClientSecret && googleClientId && googleClientSecret) {
-    return { spotifyClientId, spotifyClientSecret, googleClientId, googleClientSecret };
+  // 1. Environment variables (highest priority)
+  if (
+    process.env.SPOTIFY_CLIENT_ID &&
+    process.env.SPOTIFY_CLIENT_SECRET &&
+    process.env.GOOGLE_CLIENT_ID &&
+    process.env.GOOGLE_CLIENT_SECRET
+  ) {
+    return {
+      spotifyClientId: process.env.SPOTIFY_CLIENT_ID,
+      spotifyClientSecret: process.env.SPOTIFY_CLIENT_SECRET,
+      googleClientId: process.env.GOOGLE_CLIENT_ID,
+      googleClientSecret: process.env.GOOGLE_CLIENT_SECRET,
+    };
   }
 
-  // Fall back to KV-stored credentials.
+  // 2. Session cookie — set when user saves credentials in Step 0
+  //    This works even without Vercel KV because the cookie travels with every request
+  try {
+    const session = await getSession();
+    if (
+      session.appSpotifyClientId &&
+      session.appSpotifyClientSecret &&
+      session.appGoogleClientId &&
+      session.appGoogleClientSecret
+    ) {
+      return {
+        spotifyClientId: session.appSpotifyClientId,
+        spotifyClientSecret: session.appSpotifyClientSecret,
+        googleClientId: session.appGoogleClientId,
+        googleClientSecret: session.appGoogleClientSecret,
+      };
+    }
+  } catch {
+    // Session read failed (e.g. SESSION_SECRET missing in dev) — continue to KV
+  }
+
+  // 3. Vercel KV (persistent across devices/sessions when configured)
   const kv = await getAppCredentials();
   if (
     kv?.spotifyClientId &&

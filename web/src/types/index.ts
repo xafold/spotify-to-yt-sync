@@ -1,6 +1,12 @@
 export type SyncDirection = "spotify_to_youtube" | "youtube_to_spotify";
 
 export interface SessionData {
+  // App-level OAuth credentials (stored in session so they survive serverless cold starts)
+  appSpotifyClientId?: string;
+  appSpotifyClientSecret?: string;
+  appGoogleClientId?: string;
+  appGoogleClientSecret?: string;
+
   spotifyAccessToken?: string;
   spotifyRefreshToken?: string;
   spotifyUserId?: string;

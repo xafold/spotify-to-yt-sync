@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getAppCredentials, saveAppCredentials } from "@/lib/kv";
+import { getSession } from "@/lib/session";
 
 export const dynamic = "force-dynamic";
 
@@ -41,13 +42,25 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  await saveAppCredentials({
+  const creds = {
     spotifyClientId: spotifyClientId.trim(),
     spotifyClientSecret: spotifyClientSecret.trim(),
     googleClientId: googleClientId.trim(),
     googleClientSecret: googleClientSecret.trim(),
     savedAt: new Date().toISOString(),
-  });
+  };
+
+  // Save to KV (persistent across devices if KV is configured)
+  await saveAppCredentials(creds);
+
+  // Also save to session cookie so they survive serverless cold starts
+  // even when Vercel KV is not configured
+  const session = await getSession();
+  session.appSpotifyClientId = creds.spotifyClientId;
+  session.appSpotifyClientSecret = creds.spotifyClientSecret;
+  session.appGoogleClientId = creds.googleClientId;
+  session.appGoogleClientSecret = creds.googleClientSecret;
+  await session.save();
 
   return NextResponse.json({ ok: true });
 }
