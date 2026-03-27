@@ -3,6 +3,7 @@ import { getSession, isSpotifyConnected, isYouTubeConnected } from "@/lib/sessio
 import { refreshSpotifyToken, findOrCreateSpotifyPlaylist } from "@/lib/spotify";
 import { refreshYouTubeToken, findOrCreatePlaylist } from "@/lib/youtube";
 import { saveSyncConfig, getSyncConfig } from "@/lib/kv";
+import { getResolvedCredentials } from "@/lib/credentials";
 
 export const dynamic = "force-dynamic";
 import type { SyncConfig, SyncDirection } from "@/types";
@@ -132,6 +133,15 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    // Resolve OAuth app credentials
+    const appCreds = await getResolvedCredentials();
+    if (!appCreds) {
+      return NextResponse.json(
+        { error: "OAuth app credentials are not configured. Please complete setup." },
+        { status: 500 }
+      );
+    }
+
     // Ensure YouTube access token is still valid; refresh if needed
     let youtubeAccessToken = session.youtubeAccessToken!;
 
@@ -141,7 +151,10 @@ export async function POST(request: NextRequest) {
     );
 
     if (testResponse.status === 401) {
-      const refreshed = await refreshYouTubeToken(session.youtubeRefreshToken!);
+      const refreshed = await refreshYouTubeToken(session.youtubeRefreshToken!, {
+        clientId: appCreds.googleClientId,
+        clientSecret: appCreds.googleClientSecret,
+      });
       if (!refreshed?.access_token) {
         return NextResponse.json(
           { error: "YouTube session expired. Please reconnect YouTube." },
@@ -161,7 +174,10 @@ export async function POST(request: NextRequest) {
     );
 
     if (spotifyTestResponse.status === 401) {
-      const refreshed = await refreshSpotifyToken(session.spotifyRefreshToken!);
+      const refreshed = await refreshSpotifyToken(session.spotifyRefreshToken!, {
+        clientId: appCreds.spotifyClientId,
+        clientSecret: appCreds.spotifyClientSecret,
+      });
       if (!refreshed?.access_token) {
         return NextResponse.json(
           { error: "Spotify session expired. Please reconnect Spotify." },

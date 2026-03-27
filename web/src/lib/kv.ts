@@ -6,6 +6,7 @@
  * without any external services.
  *
  * Keys used:
+ *   app:credentials          → AppCredentials  OAuth app credentials (sensitive — do not expose to client)
  *   synced:{userId}          → string[]   Spotify URIs already synced (sp→yt)
  *   synced-yt2sp:{userId}    → string[]   YouTube video IDs already synced (yt→sp)
  *   config:{userId}          → SyncConfig  user's sync configuration
@@ -237,9 +238,35 @@ export async function resetSyncStats(userId: string): Promise<void> {
   await kvSet(`stats:${userId}`, { ...DEFAULT_STATS });
 }
 
+// ── App credentials (OAuth client IDs/secrets entered via UI) ────────────────
+
+export interface AppCredentials {
+  spotifyClientId: string;
+  spotifyClientSecret: string;
+  googleClientId: string;
+  googleClientSecret: string;
+  savedAt: string;
+}
+
+/** Saves OAuth app credentials. Treat as sensitive — never expose to client. */
+export async function saveAppCredentials(creds: AppCredentials): Promise<void> {
+  await kvSet("app:credentials", creds);
+}
+
+/** Returns saved app credentials, or null if not yet configured. */
+export async function getAppCredentials(): Promise<AppCredentials | null> {
+  return kvGet<AppCredentials>("app:credentials");
+}
+
+/** Removes saved app credentials. */
+export async function deleteAppCredentials(): Promise<void> {
+  await kvDel("app:credentials");
+}
+
 // ── Full user data reset ──────────────────────────────────────────────────────
 
-/** Clears ALL stored data for a user (used on logout / disconnect). */
+/** Clears ALL stored data for a user (used on logout / disconnect).
+ *  Does NOT remove app:credentials — those are app-level, not per-user. */
 export async function clearUserData(userId: string): Promise<void> {
   await Promise.all([
     kvDel(`synced:${userId}`),

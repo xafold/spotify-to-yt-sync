@@ -1,7 +1,12 @@
 const SPOTIFY_ACCOUNTS_URL = "https://accounts.spotify.com";
 const SPOTIFY_API_URL = "https://api.spotify.com/v1";
 
-export function getSpotifyAuthUrl(redirectUri: string): string {
+interface SpotifyCreds {
+  clientId: string;
+  clientSecret: string;
+}
+
+export function getSpotifyAuthUrl(redirectUri: string, creds: SpotifyCreds): string {
   const scopes = [
     "playlist-read-private",
     "playlist-read-collaborative",
@@ -13,7 +18,7 @@ export function getSpotifyAuthUrl(redirectUri: string): string {
   ].join(" ");
 
   const params = new URLSearchParams({
-    client_id: process.env.SPOTIFY_CLIENT_ID!,
+    client_id: creds.clientId,
     response_type: "code",
     redirect_uri: redirectUri,
     scope: scopes,
@@ -26,6 +31,7 @@ export function getSpotifyAuthUrl(redirectUri: string): string {
 export async function exchangeSpotifyCode(
   code: string,
   redirectUri: string,
+  creds: SpotifyCreds,
 ): Promise<{
   access_token: string;
   refresh_token: string;
@@ -36,7 +42,7 @@ export async function exchangeSpotifyCode(
     headers: {
       "Content-Type": "application/x-www-form-urlencoded",
       Authorization: `Basic ${Buffer.from(
-        `${process.env.SPOTIFY_CLIENT_ID}:${process.env.SPOTIFY_CLIENT_SECRET}`,
+        `${creds.clientId}:${creds.clientSecret}`,
       ).toString("base64")}`,
     },
     body: new URLSearchParams({
@@ -56,13 +62,14 @@ export async function exchangeSpotifyCode(
 
 export async function refreshSpotifyToken(
   refreshToken: string,
+  creds: SpotifyCreds,
 ): Promise<{ access_token: string; expires_in: number } | null> {
   const response = await fetch(`${SPOTIFY_ACCOUNTS_URL}/api/token`, {
     method: "POST",
     headers: {
       "Content-Type": "application/x-www-form-urlencoded",
       Authorization: `Basic ${Buffer.from(
-        `${process.env.SPOTIFY_CLIENT_ID}:${process.env.SPOTIFY_CLIENT_SECRET}`,
+        `${creds.clientId}:${creds.clientSecret}`,
       ).toString("base64")}`,
     },
     body: new URLSearchParams({

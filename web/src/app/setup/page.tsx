@@ -23,6 +23,9 @@ import {
   Zap,
   User,
   Check,
+  Eye,
+  EyeOff,
+  KeyRound,
 } from "lucide-react";
 import type { SyncDirection } from "@/types";
 
@@ -82,6 +85,7 @@ interface YouTubePlaylist {
 /* ─────────────────────────────────────────────────────────────────────────── */
 
 const STEPS = [
+  { label: "API Keys" },
   { label: "Spotify" },
   { label: "YouTube" },
   { label: "Playlists" },
@@ -201,6 +205,237 @@ function ConnectedPill({
 }
 
 /* ─────────────────────────────────────────────────────────────────────────── */
+/*  Step 0 — Enter API Keys                                                      */
+/* ─────────────────────────────────────────────────────────────────────────── */
+
+function CredentialField({
+  label,
+  id,
+  value,
+  onChange,
+  placeholder,
+  hint,
+}: {
+  label: string;
+  id: string;
+  value: string;
+  onChange: (v: string) => void;
+  placeholder: string;
+  hint?: string;
+}) {
+  const [show, setShow] = useState(false);
+  return (
+    <div className="mb-4">
+      <label htmlFor={id} className="block text-xs font-semibold text-[var(--text-secondary)] uppercase tracking-widest mb-1.5">
+        {label}
+      </label>
+      <div className="relative">
+        <input
+          id={id}
+          type={show ? "text" : "password"}
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          placeholder={placeholder}
+          autoComplete="off"
+          className="w-full bg-[var(--surface-elevated)] border border-[var(--border)] rounded-lg px-3 py-2.5 text-sm text-white placeholder-[var(--text-muted)] focus:outline-none focus:border-[var(--spotify)] focus:ring-1 focus:ring-[var(--spotify)] pr-10 font-mono"
+        />
+        <button
+          type="button"
+          onClick={() => setShow((s) => !s)}
+          className="absolute right-3 top-1/2 -translate-y-1/2 text-[var(--text-muted)] hover:text-[var(--text-secondary)] transition-colors"
+          aria-label={show ? "Hide" : "Show"}
+        >
+          {show ? <EyeOff size={15} /> : <Eye size={15} />}
+        </button>
+      </div>
+      {hint && <p className="mt-1 text-[11px] text-[var(--text-muted)]">{hint}</p>}
+    </div>
+  );
+}
+
+function StepCredentials({ onNext }: { onNext: () => void }) {
+  const [spotifyClientId, setSpotifyClientId] = useState("");
+  const [spotifyClientSecret, setSpotifyClientSecret] = useState("");
+  const [googleClientId, setGoogleClientId] = useState("");
+  const [googleClientSecret, setGoogleClientSecret] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [alreadySaved, setAlreadySaved] = useState(false);
+  const [savedAt, setSavedAt] = useState<string | null>(null);
+  const [showForm, setShowForm] = useState(false);
+
+  useEffect(() => {
+    fetch("/api/auth/credentials")
+      .then((r) => r.json())
+      .then((d) => {
+        if (d.configured) {
+          setAlreadySaved(true);
+          setSavedAt(d.savedAt);
+        } else {
+          setShowForm(true);
+        }
+      })
+      .catch(() => setShowForm(true));
+  }, []);
+
+  const handleSave = async () => {
+    setError(null);
+    setSaving(true);
+    try {
+      const res = await fetch("/api/auth/credentials", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ spotifyClientId, spotifyClientSecret, googleClientId, googleClientSecret }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setError(data.error ?? "Failed to save credentials.");
+      } else {
+        onNext();
+      }
+    } catch {
+      setError("Network error. Please try again.");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div className="animate-fade-in-up">
+      {/* Header */}
+      <div className="flex items-start gap-4 mb-8">
+        <div
+          className="w-14 h-14 rounded-2xl flex items-center justify-center flex-shrink-0"
+          style={{ background: "rgba(29,185,84,0.1)", border: "1px solid rgba(29,185,84,0.2)" }}
+        >
+          <KeyRound size={26} className="text-[var(--spotify)]" />
+        </div>
+        <div>
+          <h2 className="text-2xl font-black text-white mb-1">Enter Your API Keys</h2>
+          <p className="text-[var(--text-secondary)] text-sm leading-relaxed">
+            Paste your Spotify and Google OAuth credentials below. These are stored securely on your server and never shared.
+          </p>
+        </div>
+      </div>
+
+      {error && (
+        <div className="alert alert-error mb-6">
+          <AlertCircle size={16} className="flex-shrink-0 mt-0.5" />
+          <p className="text-sm">{error}</p>
+        </div>
+      )}
+
+      {alreadySaved && !showForm ? (
+        <div className="card mb-6" style={{ borderColor: "var(--spotify)" }}>
+          <div className="flex items-center gap-3 mb-3">
+            <CheckCircle2 size={18} className="text-[var(--spotify)]" />
+            <p className="font-semibold text-white text-sm">API keys already saved</p>
+          </div>
+          {savedAt && (
+            <p className="text-xs text-[var(--text-muted)] mb-3">
+              Last updated: {new Date(savedAt).toLocaleString()}
+            </p>
+          )}
+          <p className="text-xs text-[var(--text-secondary)] mb-4">
+            Your Spotify and Google credentials are configured. You can continue to connect your accounts, or update the keys below.
+          </p>
+          <button
+            onClick={() => setShowForm(true)}
+            className="text-xs text-[var(--text-muted)] hover:text-[var(--text-secondary)] transition-colors inline-flex items-center gap-1"
+          >
+            <RefreshCw size={11} />
+            Update credentials
+          </button>
+        </div>
+      ) : showForm ? (
+        <>
+          {/* How to get keys */}
+          <div className="instruction-box mb-6">
+            <p className="text-xs font-semibold text-[var(--text-muted)] uppercase tracking-widest mb-4">
+              Where to find your keys
+            </p>
+            <InstructionStep num={1}>
+              <strong className="text-white">Spotify:</strong> Go to{" "}
+              <a href="https://developer.spotify.com/dashboard" target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 font-medium">
+                developer.spotify.com/dashboard <ExternalLink size={11} />
+              </a>
+              , create an app, then copy <strong className="text-white">Client ID</strong> and <strong className="text-white">Client Secret</strong>.
+              In Settings → Redirect URIs, add:{" "}
+              <code className="text-[11px] break-all">
+                {typeof window !== "undefined" ? window.location.origin : "https://your-app.vercel.app"}/api/auth/spotify/callback
+              </code>
+            </InstructionStep>
+            <InstructionStep num={2}>
+              <strong className="text-white">Google:</strong> Go to{" "}
+              <a href="https://console.cloud.google.com" target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 font-medium">
+                console.cloud.google.com <ExternalLink size={11} />
+              </a>
+              , enable the <strong className="text-white">YouTube Data API v3</strong>, create an OAuth 2.0 Client ID (Web application), and add redirect URI:{" "}
+              <code className="text-[11px] break-all">
+                {typeof window !== "undefined" ? window.location.origin : "https://your-app.vercel.app"}/api/auth/youtube/callback
+              </code>
+            </InstructionStep>
+          </div>
+
+          {/* Spotify fields */}
+          <div className="mb-6 p-4 rounded-xl" style={{ background: "rgba(29,185,84,0.05)", border: "1px solid rgba(29,185,84,0.15)" }}>
+            <div className="flex items-center gap-2 mb-4">
+              <SpotifyIcon className="w-4 h-4 text-[var(--spotify)]" />
+              <span className="text-sm font-bold text-white">Spotify Credentials</span>
+            </div>
+            <CredentialField label="Client ID" id="sp-client-id" value={spotifyClientId} onChange={setSpotifyClientId} placeholder="32-character hex string" hint="Found in your Spotify app dashboard under Settings" />
+            <CredentialField label="Client Secret" id="sp-client-secret" value={spotifyClientSecret} onChange={setSpotifyClientSecret} placeholder="32-character hex string" hint="Keep this secret — treat it like a password" />
+          </div>
+
+          {/* Google fields */}
+          <div className="mb-6 p-4 rounded-xl" style={{ background: "rgba(255,0,0,0.04)", border: "1px solid rgba(255,0,0,0.15)" }}>
+            <div className="flex items-center gap-2 mb-4">
+              <YouTubeIcon className="w-4 h-4 text-[var(--youtube)]" />
+              <span className="text-sm font-bold text-white">Google / YouTube Credentials</span>
+            </div>
+            <CredentialField label="Client ID" id="g-client-id" value={googleClientId} onChange={setGoogleClientId} placeholder="Ends in .apps.googleusercontent.com" hint="Found in Google Cloud Console → Credentials" />
+            <CredentialField label="Client Secret" id="g-client-secret" value={googleClientSecret} onChange={setGoogleClientSecret} placeholder="GOCSPX-…" hint="Keep this secret — treat it like a password" />
+          </div>
+
+          {/* Security note */}
+          <div className="flex items-start gap-2.5 mb-6 p-3 rounded-lg" style={{ background: "rgba(29,185,84,0.05)", border: "1px solid rgba(29,185,84,0.12)" }}>
+            <Lock size={14} className="text-[var(--spotify)] mt-0.5 flex-shrink-0" />
+            <p className="text-xs text-[var(--text-secondary)] leading-relaxed">
+              <strong className="text-white">Your keys stay private.</strong> They are stored in your Vercel KV database and never sent to third parties. Only this app reads them to perform OAuth on your behalf.
+            </p>
+          </div>
+
+          <button
+            onClick={handleSave}
+            disabled={saving || !spotifyClientId || !spotifyClientSecret || !googleClientId || !googleClientSecret}
+            className="btn btn-spotify w-full justify-center text-base py-3.5 disabled:opacity-40 disabled:cursor-not-allowed"
+          >
+            {saving ? <Loader2 size={18} className="animate-spin" /> : <KeyRound size={18} />}
+            {saving ? "Saving…" : "Save & Continue"}
+            {!saving && <ArrowRight size={16} />}
+          </button>
+        </>
+      ) : (
+        <div className="flex justify-center py-8">
+          <div className="spinner spinner-lg" />
+        </div>
+      )}
+
+      {/* Continue if already saved */}
+      {alreadySaved && !showForm && (
+        <button
+          onClick={onNext}
+          className="btn btn-primary-gradient w-full justify-center text-base py-3.5 mt-3"
+        >
+          Continue
+          <ArrowRight size={16} />
+        </button>
+      )}
+    </div>
+  );
+}
+
+/* ─────────────────────────────────────────────────────────────────────────── */
 /*  Step 1 — Connect Spotify                                                     */
 /* ─────────────────────────────────────────────────────────────────────────── */
 
@@ -303,12 +538,10 @@ function StepSpotify({
             </InstructionStep>
             <InstructionStep num={4}>
               Copy your <strong className="text-white">Client ID</strong> and{" "}
-              <strong className="text-white">Client Secret</strong> and add them as
-              environment variables in Vercel:{" "}
-              <code>SPOTIFY_CLIENT_ID</code> and <code>SPOTIFY_CLIENT_SECRET</code>.
+              <strong className="text-white">Client Secret</strong> — you already pasted them in the previous step.
             </InstructionStep>
             <InstructionStep num={5}>
-              Come back here and click the button below to authorize.
+              Click the button below to authorize with Spotify.
             </InstructionStep>
           </div>
 
@@ -467,11 +700,10 @@ function StepYouTube({
             </InstructionStep>
             <InstructionStep num={5}>
               Copy your <strong className="text-white">Client ID</strong> and{" "}
-              <strong className="text-white">Client Secret</strong> and add them in Vercel as{" "}
-              <code>GOOGLE_CLIENT_ID</code> and <code>GOOGLE_CLIENT_SECRET</code>.
+              <strong className="text-white">Client Secret</strong> — you already pasted them in the first step.
             </InstructionStep>
             <InstructionStep num={6}>
-              Come back here and click the button below to authorize.
+              Click the button below to authorize with Google.
             </InstructionStep>
           </div>
 
@@ -1085,14 +1317,15 @@ function SetupPageContent() {
   const youtubeConnected = searchParams.get("youtube") === "connected";
 
   const errorMessages: Record<string, string> = {
+    missing_credentials: "API keys are not configured. Please complete Step 1 (API Keys) first.",
     spotify_denied: "You denied Spotify access. Please try again and click Allow.",
     spotify_token_exchange_failed:
-      "Spotify authentication failed. Check your SPOTIFY_CLIENT_ID and SPOTIFY_CLIENT_SECRET environment variables.",
+      "Spotify authentication failed. Make sure your Client ID and Client Secret are correct — go back to Step 1 to update them.",
     spotify_profile_failed:
       "Could not retrieve your Spotify profile. Please try reconnecting.",
     youtube_denied: "You denied YouTube access. Please try again and click Allow.",
     youtube_token_exchange_failed:
-      "YouTube authentication failed. Check your GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET environment variables.",
+      "YouTube authentication failed. Make sure your Google Client ID and Client Secret are correct — go back to Step 1 to update them.",
     youtube_channel_failed:
       "Could not retrieve your YouTube channel. Make sure your Google account has a YouTube channel.",
   };
@@ -1102,12 +1335,21 @@ function SetupPageContent() {
   // Fetch auth status on mount and after OAuth callbacks
   const fetchAuthStatus = useCallback(async () => {
     try {
+      // Check if credentials are configured first
+      const credsRes = await fetch("/api/auth/credentials");
+      const credsData = await credsRes.json();
+      if (!credsData.configured) {
+        setStep(0);
+        setLoadingAuth(false);
+        return;
+      }
+
       const res = await fetch("/api/auth/status");
       if (res.ok) {
         const data: AuthStatus = await res.json();
         setAuthStatus(data);
 
-        // Auto-advance step based on connection state
+        // Auto-advance step based on connection state (steps shifted by 1 — step 0 is now API Keys)
         if (data.spotify.connected && data.youtube.connected && data.syncConfig) {
           setSavedConfig({
             spotifyPlaylist: data.syncConfig.spotifyPlaylist,
@@ -1115,12 +1357,14 @@ function SetupPageContent() {
             intervalSeconds: data.syncConfig.intervalSeconds,
             direction: data.syncConfig.direction ?? "spotify_to_youtube",
           });
-          setStep(3);
+          setStep(4);
         } else if (data.spotify.connected && data.youtube.connected) {
-          setStep(2);
+          setStep(3);
         } else if (data.spotify.connected && youtubeConnected) {
-          setStep(1); // show YT step with success
+          setStep(2); // show YT step with success
         } else if (spotifyConnected || data.spotify.connected) {
+          setStep(2);
+        } else {
           setStep(1);
         }
       }
@@ -1202,34 +1446,37 @@ function SetupPageContent() {
             <StepProgress current={step} />
 
             {step === 0 && (
-              <StepSpotify
-                authStatus={authStatus}
-                onNext={() => setStep(1)}
-                error={currentError && (errorParam?.startsWith("spotify") ?? false) ? currentError : null}
-              />
+              <StepCredentials onNext={() => setStep(1)} />
             )}
             {step === 1 && (
-              <StepYouTube
+              <StepSpotify
                 authStatus={authStatus}
                 onNext={() => setStep(2)}
-                onBack={() => setStep(0)}
-                error={currentError && (errorParam?.startsWith("youtube") ?? false) ? currentError : null}
+                error={currentError && (errorParam?.startsWith("spotify") || errorParam === "missing_credentials") ? currentError : null}
               />
             )}
             {step === 2 && (
-              <StepPlaylists
-                onNext={(cfg) => {
-                  setSavedConfig(cfg);
-                  setStep(3);
-                }}
+              <StepYouTube
+                authStatus={authStatus}
+                onNext={() => setStep(3)}
                 onBack={() => setStep(1)}
+                error={currentError && (errorParam?.startsWith("youtube") ?? false) ? currentError : null}
               />
             )}
             {step === 3 && (
+              <StepPlaylists
+                onNext={(cfg) => {
+                  setSavedConfig(cfg);
+                  setStep(4);
+                }}
+                onBack={() => setStep(2)}
+              />
+            )}
+            {step === 4 && (
               <StepLaunch
                 config={savedConfig}
                 authStatus={authStatus}
-                onBack={() => setStep(2)}
+                onBack={() => setStep(3)}
               />
             )}
           </div>

@@ -1,21 +1,21 @@
 import { NextResponse } from "next/server";
 import { getSpotifyAuthUrl } from "@/lib/spotify";
+import { getResolvedCredentials } from "@/lib/credentials";
+
+export const dynamic = "force-dynamic";
 
 export async function GET() {
   const appUrl = process.env.APP_URL ?? "http://localhost:3000";
   const redirectUri = `${appUrl}/api/auth/spotify/callback`;
 
-  if (!process.env.SPOTIFY_CLIENT_ID || !process.env.SPOTIFY_CLIENT_SECRET) {
-    return NextResponse.json(
-      {
-        error: "Missing Spotify credentials",
-        details:
-          "SPOTIFY_CLIENT_ID and SPOTIFY_CLIENT_SECRET must be set in your environment variables.",
-      },
-      { status: 500 }
-    );
+  const creds = await getResolvedCredentials();
+  if (!creds) {
+    return NextResponse.redirect(`${appUrl}/setup?error=missing_credentials`);
   }
 
-  const authUrl = getSpotifyAuthUrl(redirectUri);
+  const authUrl = getSpotifyAuthUrl(redirectUri, {
+    clientId: creds.spotifyClientId,
+    clientSecret: creds.spotifyClientSecret,
+  });
   return NextResponse.redirect(authUrl);
 }

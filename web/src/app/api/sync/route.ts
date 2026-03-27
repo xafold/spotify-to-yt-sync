@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSession, isSpotifyConnected, isYouTubeConnected } from "@/lib/session";
+import { getResolvedCredentials } from "@/lib/credentials";
 
 export const dynamic = "force-dynamic";
 import {
@@ -90,7 +91,16 @@ export async function POST(request: NextRequest) {
 
     const direction = syncConfig.direction ?? "spotify_to_youtube";
 
-    // ── 2. Parse request body ─────────────────────────────────────────────
+    // ── 2. Resolve OAuth app credentials ──────────────────────────────────
+    const appCreds = await getResolvedCredentials();
+    if (!appCreds) {
+      return NextResponse.json(
+        { error: "OAuth app credentials are not configured. Please complete setup." },
+        { status: 500 }
+      );
+    }
+
+    // ── 3. Parse request body ─────────────────────────────────────────────
     let body: { offset?: number; chunkSize?: number; force?: boolean } = {};
     try {
       body = await request.json();
@@ -105,14 +115,17 @@ export async function POST(request: NextRequest) {
         : DEFAULT_CHUNK_SIZE;
     const force = body.force === true;
 
-    // ── 3. Refresh Spotify token if needed ────────────────────────────────
+    // ── 4. Refresh Spotify token if needed ────────────────────────────────
     let spotifyToken = session.spotifyAccessToken!;
     {
       const probe = await fetch("https://api.spotify.com/v1/me", {
         headers: { Authorization: `Bearer ${spotifyToken}` },
       });
       if (probe.status === 401) {
-        const refreshed = await refreshSpotifyToken(session.spotifyRefreshToken!);
+        const refreshed = await refreshSpotifyToken(session.spotifyRefreshToken!, {
+          clientId: appCreds.spotifyClientId,
+          clientSecret: appCreds.spotifyClientSecret,
+        });
         if (!refreshed?.access_token) {
           return NextResponse.json(
             { error: "Spotify session expired. Please reconnect Spotify." },
@@ -125,7 +138,7 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // ── 4. Refresh YouTube token if needed ────────────────────────────────
+    // ── 5. Refresh YouTube token if needed ────────────────────────────────
     let youtubeToken = session.youtubeAccessToken!;
     {
       const probe = await fetch(
@@ -133,7 +146,10 @@ export async function POST(request: NextRequest) {
         { headers: { Authorization: `Bearer ${youtubeToken}` } }
       );
       if (probe.status === 401) {
-        const refreshed = await refreshYouTubeToken(session.youtubeRefreshToken!);
+        const refreshed = await refreshYouTubeToken(session.youtubeRefreshToken!, {
+          clientId: appCreds.googleClientId,
+          clientSecret: appCreds.googleClientSecret,
+        });
         if (!refreshed?.access_token) {
           return NextResponse.json(
             { error: "YouTube session expired. Please reconnect YouTube." },

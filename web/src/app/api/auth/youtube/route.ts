@@ -1,21 +1,21 @@
 import { NextResponse } from "next/server";
 import { getYouTubeAuthUrl } from "@/lib/youtube";
+import { getResolvedCredentials } from "@/lib/credentials";
+
+export const dynamic = "force-dynamic";
 
 export async function GET() {
   const appUrl = process.env.APP_URL ?? "http://localhost:3000";
   const redirectUri = `${appUrl}/api/auth/youtube/callback`;
 
-  if (!process.env.GOOGLE_CLIENT_ID || !process.env.GOOGLE_CLIENT_SECRET) {
-    return NextResponse.json(
-      {
-        error: "Missing Google credentials",
-        details:
-          "GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET must be set in your environment variables.",
-      },
-      { status: 500 }
-    );
+  const creds = await getResolvedCredentials();
+  if (!creds) {
+    return NextResponse.redirect(`${appUrl}/setup?error=missing_credentials`);
   }
 
-  const authUrl = getYouTubeAuthUrl(redirectUri);
+  const authUrl = getYouTubeAuthUrl(redirectUri, {
+    clientId: creds.googleClientId,
+    clientSecret: creds.googleClientSecret,
+  });
   return NextResponse.redirect(authUrl);
 }

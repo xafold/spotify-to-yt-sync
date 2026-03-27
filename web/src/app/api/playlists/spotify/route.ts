@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { getSession, isSpotifyConnected } from "@/lib/session";
 import { getUserPlaylists, refreshSpotifyToken } from "@/lib/spotify";
+import { getResolvedCredentials } from "@/lib/credentials";
 import type { SpotifyPlaylist } from "@/types";
 
 export const dynamic = "force-dynamic";
@@ -23,7 +24,14 @@ export async function GET() {
 
     if (!playlists) {
       // Attempt token refresh
-      const refreshed = await refreshSpotifyToken(session.spotifyRefreshToken!);
+      const appCreds = await getResolvedCredentials();
+      if (!appCreds) {
+        return NextResponse.json({ error: "OAuth credentials not configured." }, { status: 500 });
+      }
+      const refreshed = await refreshSpotifyToken(session.spotifyRefreshToken!, {
+        clientId: appCreds.spotifyClientId,
+        clientSecret: appCreds.spotifyClientSecret,
+      });
       if (!refreshed?.access_token) {
         return NextResponse.json(
           { error: "Spotify session expired. Please reconnect." },

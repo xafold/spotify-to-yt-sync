@@ -6,11 +6,16 @@ const GOOGLE_AUTH_URL = "https://accounts.google.com/o/oauth2/v2/auth";
 // OAuth helpers
 // ---------------------------------------------------------------------------
 
-export function getYouTubeAuthUrl(redirectUri: string): string {
+interface GoogleCreds {
+  clientId: string;
+  clientSecret: string;
+}
+
+export function getYouTubeAuthUrl(redirectUri: string, creds: GoogleCreds): string {
   const scopes = ["https://www.googleapis.com/auth/youtube"].join(" ");
 
   const params = new URLSearchParams({
-    client_id: process.env.GOOGLE_CLIENT_ID!,
+    client_id: creds.clientId,
     redirect_uri: redirectUri,
     response_type: "code",
     scope: scopes,
@@ -23,7 +28,8 @@ export function getYouTubeAuthUrl(redirectUri: string): string {
 
 export async function exchangeYouTubeCode(
   code: string,
-  redirectUri: string
+  redirectUri: string,
+  creds: GoogleCreds,
 ): Promise<{
   access_token: string;
   refresh_token: string;
@@ -33,8 +39,8 @@ export async function exchangeYouTubeCode(
     method: "POST",
     headers: { "Content-Type": "application/x-www-form-urlencoded" },
     body: new URLSearchParams({
-      client_id: process.env.GOOGLE_CLIENT_ID!,
-      client_secret: process.env.GOOGLE_CLIENT_SECRET!,
+      client_id: creds.clientId,
+      client_secret: creds.clientSecret,
       redirect_uri: redirectUri,
       grant_type: "authorization_code",
       code,
@@ -50,14 +56,15 @@ export async function exchangeYouTubeCode(
 }
 
 export async function refreshYouTubeToken(
-  refreshToken: string
+  refreshToken: string,
+  creds: GoogleCreds,
 ): Promise<{ access_token: string; expires_in: number } | null> {
   const response = await fetch(GOOGLE_TOKEN_URL, {
     method: "POST",
     headers: { "Content-Type": "application/x-www-form-urlencoded" },
     body: new URLSearchParams({
-      client_id: process.env.GOOGLE_CLIENT_ID!,
-      client_secret: process.env.GOOGLE_CLIENT_SECRET!,
+      client_id: creds.clientId,
+      client_secret: creds.clientSecret,
       refresh_token: refreshToken,
       grant_type: "refresh_token",
     }),

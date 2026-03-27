@@ -1,6 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSession } from "@/lib/session";
 import { exchangeYouTubeCode, getYouTubeChannel } from "@/lib/youtube";
+import { getResolvedCredentials } from "@/lib/credentials";
+
+export const dynamic = "force-dynamic";
 
 export async function GET(request: NextRequest) {
   const appUrl = process.env.APP_URL ?? "http://localhost:3000";
@@ -18,8 +21,17 @@ export async function GET(request: NextRequest) {
     );
   }
 
+  // Resolve credentials
+  const creds = await getResolvedCredentials();
+  if (!creds) {
+    return NextResponse.redirect(`${appUrl}/setup?error=missing_credentials`);
+  }
+
   // Exchange the code for tokens
-  const tokens = await exchangeYouTubeCode(code, redirectUri);
+  const tokens = await exchangeYouTubeCode(code, redirectUri, {
+    clientId: creds.googleClientId,
+    clientSecret: creds.googleClientSecret,
+  });
 
   if (!tokens?.access_token || !tokens?.refresh_token) {
     return NextResponse.redirect(

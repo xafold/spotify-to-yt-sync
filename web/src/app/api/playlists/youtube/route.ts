@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { getSession, isYouTubeConnected } from "@/lib/session";
 import { getUserPlaylists, refreshYouTubeToken } from "@/lib/youtube";
+import { getResolvedCredentials } from "@/lib/credentials";
 import type { YouTubePlaylist } from "@/types";
 
 export const dynamic = "force-dynamic";
@@ -22,7 +23,14 @@ export async function GET() {
 
     if (!playlists || playlists.length === 0) {
       // Attempt token refresh and retry
-      const refreshed = await refreshYouTubeToken(session.youtubeRefreshToken!);
+      const appCreds = await getResolvedCredentials();
+      if (!appCreds) {
+        return NextResponse.json({ error: "OAuth credentials not configured." }, { status: 500 });
+      }
+      const refreshed = await refreshYouTubeToken(session.youtubeRefreshToken!, {
+        clientId: appCreds.googleClientId,
+        clientSecret: appCreds.googleClientSecret,
+      });
       if (!refreshed?.access_token) {
         return NextResponse.json(
           { error: "YouTube session expired. Please reconnect." },
